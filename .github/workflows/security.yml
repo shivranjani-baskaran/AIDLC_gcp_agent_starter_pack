@@ -1,0 +1,127 @@
+# ==============================================================================
+# Security — SAST (CodeQL), secret scanning (Gitleaks), dependency &
+# misconfiguration scanning (Trivy), and PR dependency review.
+# ==============================================================================
+# All scanners upload SARIF to GitHub code scanning so findings appear inline on
+# PRs and in the Security tab. Runs on PRs, pushes to main, and a weekly
+# schedule (catches newly disclosed CVEs in unchanged code).
+# ==============================================================================
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "27 3 * * 1" # Mondays 03:27 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # SAST — CodeQL static analysis for Python.
+  # ----------------------------------------------------------------------------
+  codeql:
+    name: CodeQL (SAST)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["python"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          # security-extended adds higher-recall security queries.
+          queries: security-extended
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+
+  # ----------------------------------------------------------------------------
+  # Secret scanning — Gitleaks. Fails the build if a secret is detected.
+  # ----------------------------------------------------------------------------
+  gitleaks:
+    name: Gitleaks (secret scanning)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so historical commits are scanned
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE only required for org-level use.
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ----------------------------------------------------------------------------
+  # Dependency & misconfiguration scanning — Trivy filesystem scan.
+  # Covers vulnerable dependencies (uv.lock / pyproject), IaC misconfig
+  # (Terraform, Dockerfiles), and embedded secrets. SARIF -> code scanning.
+  # ----------------------------------------------------------------------------
+  trivy:
+    name: Trivy (dependency + IaC scan)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trivy filesystem scan (SARIF)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: "vuln,misconfig,secret"
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-fs
+
+      # Gate the pipeline: re-run in table mode and fail on CRITICAL/HIGH.
+      - name: Trivy gate (fail on CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: "vuln,misconfig,secret"
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # ----------------------------------------------------------------------------
+  # PR dependency review — blocks introduction of vulnerable/incompatible deps.
+  # ----------------------------------------------------------------------------
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
