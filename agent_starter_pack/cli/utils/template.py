@@ -1527,11 +1527,15 @@ def process_template(
                 f"Directory contents: {list(cookiecutter_template.iterdir())}"
             )
 
-            # Process the template
+            # Process the template.
+            # accept_hooks=False disables cookiecutter pre/post-gen hook execution as
+            # defense-in-depth: first-party templates ship no hooks, and remote content
+            # is overlaid AFTER this step, so no legitimate hook should ever run here.
             cookiecutter(
                 str(cookiecutter_template),
                 no_input=True,
                 overwrite_if_exists=True,
+                accept_hooks=False,
                 extra_context={
                     "project_name": project_name,
                     "agent_name": agent_name,

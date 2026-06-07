@@ -31,6 +31,7 @@ import click
 from jinja2 import Environment
 from packaging import version as pkg_version
 from rich.console import Console
+from rich.markup import escape
 from rich.prompt import Confirm
 
 
@@ -297,12 +298,14 @@ def confirm_remote_template_trust(
         "execute code\n   (template hooks / Jinja) with your active gcloud credentials. "
         "Only continue if you trust it."
     )
-    console.print(f"   Source: [cyan]{spec.repo_url}[/]")
-    console.print(f"   Ref:    [cyan]{spec.git_ref}[/]")
+    # Escape user-derived values so a crafted repo URL/ref/path cannot inject
+    # rich console markup into the output.
+    console.print(f"   Source: [cyan]{escape(spec.repo_url)}[/]")
+    console.print(f"   Ref:    [cyan]{escape(spec.git_ref)}[/]")
     if spec.template_path:
-        console.print(f"   Path:   [cyan]{spec.template_path}[/]")
+        console.print(f"   Path:   [cyan]{escape(spec.template_path)}[/]")
     if original_agent_spec and original_agent_spec != spec.repo_url:
-        console.print(f"   Spec:   [dim]{original_agent_spec}[/]")
+        console.print(f"   Spec:   [dim]{escape(original_agent_spec)}[/]")
 
     if auto_approve:
         console.print(
