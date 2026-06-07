@@ -84,6 +84,11 @@ Effort is in ideal engineer-days. Risk reduction and business value are HIGH / M
 
 ## ✅ Selected Improvement: **A — Remote-Template Trust Gate**
 
+> **Status: ✅ IMPLEMENTED.** See [`IMPROVEMENT_IMPLEMENTATION.md`](IMPROVEMENT_IMPLEMENTATION.md) for the full change report.
+> Delivered: trust allowlist + confirmation gate + commit-SHA provenance + hook warning in
+> `remote_template.py`, threaded `auto_approve` in `create.py`, and offline unit tests in
+> `tests/cli/utils/test_remote_template_trust.py`.
+
 **One-line:** Require explicit confirmation and show provenance (source + commit SHA) before fetching/rendering any non-local remote template, and disable cookiecutter hooks for remote sources.
 
 ### Why this one
