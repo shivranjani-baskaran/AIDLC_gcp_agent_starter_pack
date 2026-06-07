@@ -27,9 +27,11 @@ if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
+import click
 from jinja2 import Environment
 from packaging import version as pkg_version
 from rich.console import Console
+from rich.prompt import Confirm
 
 
 @dataclass
@@ -251,11 +253,100 @@ def check_and_execute_with_version_lock(
     return False
 
 
+# First-party Google template sources that are considered trusted and therefore
+# do not require an interactive trust confirmation before being cloned/rendered.
+TRUSTED_TEMPLATE_HOSTS: set[str] = {
+    "https://github.com/google/adk-samples",
+    "https://github.com/google/adk-python",
+}
+
+
+def is_trusted_template_source(spec: RemoteTemplateSpec) -> bool:
+    """Return True if the remote template source is a first-party, trusted source."""
+    return spec.repo_url in TRUSTED_TEMPLATE_HOSTS
+
+
+def confirm_remote_template_trust(
+    spec: RemoteTemplateSpec,
+    original_agent_spec: str | None = None,
+    auto_approve: bool = False,
+) -> None:
+    """Show provenance and require confirmation before fetching an untrusted template.
+
+    Remote templates are cloned and rendered through cookiecutter/Jinja, which can
+    execute code (template hooks, Jinja expressions) on the developer's machine with
+    their active gcloud credentials. First-party Google sources are trusted; every
+    other source requires informed consent so a malicious template cannot silently
+    run code or exfiltrate credentials.
+
+    Args:
+        spec: Parsed remote template specification.
+        original_agent_spec: The raw spec string the user supplied (for display).
+        auto_approve: If True, skip the interactive prompt (documented bypass).
+
+    Raises:
+        click.Abort: If the user declines to trust the source.
+    """
+    if is_trusted_template_source(spec):
+        return
+
+    console = Console()
+    console.print("\n[bold yellow]⚠️  Untrusted remote template[/]")
+    console.print(
+        "   This template will be cloned and rendered on your machine. Rendering can "
+        "execute code\n   (template hooks / Jinja) with your active gcloud credentials. "
+        "Only continue if you trust it."
+    )
+    console.print(f"   Source: [cyan]{spec.repo_url}[/]")
+    console.print(f"   Ref:    [cyan]{spec.git_ref}[/]")
+    if spec.template_path:
+        console.print(f"   Path:   [cyan]{spec.template_path}[/]")
+    if original_agent_spec and original_agent_spec != spec.repo_url:
+        console.print(f"   Spec:   [dim]{original_agent_spec}[/]")
+
+    if auto_approve:
+        console.print(
+            "   [dim]--auto-approve set: proceeding without confirmation.[/]"
+        )
+        return
+
+    if not Confirm.ask(
+        "\n   Do you trust this source and want to continue?", default=False
+    ):
+        raise click.Abort()
+
+
+def _log_template_provenance(repo_path: pathlib.Path, env: dict[str, str]) -> None:
+    """Print the resolved commit SHA and warn if the template ships cookiecutter hooks."""
+    console = Console()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=str(repo_path),
+            env=env,
+        )
+        sha = result.stdout.strip()
+        if sha:
+            console.print(f"   [dim]Resolved commit: {sha}[/]")
+    except Exception as e:  # provenance is best-effort, never fatal
+        logging.debug(f"Could not resolve template commit SHA: {e}")
+
+    if (repo_path / "hooks").is_dir():
+        console.print(
+            "   [bold yellow]⚠️  This template contains cookiecutter hooks that may "
+            "execute during generation.[/]"
+        )
+
+
 def fetch_remote_template(
     spec: RemoteTemplateSpec,
     original_agent_spec: str | None = None,
     locked: bool = False,
     project_name: str | None = None,
+    auto_approve: bool = False,
 ) -> tuple[pathlib.Path, pathlib.Path]:
     """Fetch remote template and return path to template directory.
 
@@ -273,6 +364,9 @@ def fetch_remote_template(
         - Path to the fetched template directory.
         - Path to the top-level temporary directory that should be cleaned up.
     """
+    # Require informed consent before fetching/rendering an untrusted source.
+    confirm_remote_template_trust(spec, original_agent_spec, auto_approve=auto_approve)
+
     temp_dir = tempfile.mkdtemp(prefix="asp_remote_template_")
     temp_path = pathlib.Path(temp_dir)
     repo_path = temp_path / "repo"
@@ -367,6 +461,9 @@ def fetch_remote_template(
                     env=git_env,
                 )
             logging.debug(f"Sparse checkout configured for path: {spec.template_path}")
+
+        # Surface provenance (commit SHA) and warn about executable hooks.
+        _log_template_provenance(repo_path, git_env)
     except subprocess.CalledProcessError as e:
         shutil.rmtree(temp_path, ignore_errors=True)
         raise RuntimeError(f"Git clone failed: {e.stderr.strip()}") from e
