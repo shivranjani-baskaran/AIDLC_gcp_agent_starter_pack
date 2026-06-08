@@ -1,0 +1,186 @@
+# ==============================================================================
+# CI — build, lint, unit tests, integration tests, coverage
+# ==============================================================================
+# Tuned to this repo's toolchain: uv (with committed uv.lock), ruff + ty +
+# codespell for linting, and pytest/pytest-cov for tests. Python is pinned to
+# 3.10–3.12 because the `grpcio` dev dependency has no wheel for 3.13/3.14 and
+# would otherwise fail to build from source.
+# ==============================================================================
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default; jobs opt into more only when needed.
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.8.13"
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Lint & static type checks — fast fail before the expensive matrix runs.
+  # ----------------------------------------------------------------------------
+  lint:
+    name: Lint (ruff, ty, codespell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies (dev + lint)
+        run: uv sync --dev --extra lint --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check . --config pyproject.toml --output-format=github
+
+      - name: Ruff format check
+        run: uv run ruff format . --check --config pyproject.toml
+
+      - name: Type check (ty)
+        run: uv run ty check ./agent_starter_pack/cli ./tests
+
+      - name: Spell check (codespell)
+        run: uv run codespell
+
+  # ----------------------------------------------------------------------------
+  # Build — produce wheel/sdist and verify the package imports & CLI runs.
+  # ----------------------------------------------------------------------------
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: Smoke-test the built CLI
+        run: |
+          uv run --no-project --with dist/*.whl \
+            agent-starter-pack --version
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          retention-days: 7
+
+  # ----------------------------------------------------------------------------
+  # Unit tests + coverage — matrix across supported Python versions.
+  # `pytest tests` skips tests/integration via addopts in pyproject.toml.
+  # ----------------------------------------------------------------------------
+  unit-tests:
+    name: Unit tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync dependencies (dev)
+        run: uv sync --dev --frozen
+
+      - name: Run unit tests with coverage
+        run: |
+          uv run pytest tests \
+            --cov=agent_starter_pack \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --junitxml=junit-${{ matrix.python-version }}.xml
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            junit-${{ matrix.python-version }}.xml
+          retention-days: 7
+
+      # Optional: requires CODECOV_TOKEN secret for private repos.
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Coverage summary
+        if: matrix.python-version == '3.12'
+        run: |
+          {
+            echo "### Coverage (py${{ matrix.python-version }})"
+            echo '```'
+            uv run coverage report || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ----------------------------------------------------------------------------
+  # Integration tests — the cloud-free subset that renders/lints templates.
+  # Full e2e deployment tests require GCP credentials and run out-of-band.
+  # ----------------------------------------------------------------------------
+  integration-tests:
+    name: Integration tests (template rendering/linting)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies (dev)
+        run: uv sync --dev --frozen
+
+      - name: Render-and-lint templated agents (no cloud required)
+        run: uv run python tests/integration/test_template_linting.py
+
+      # NOTE: test_makefile_usability.py and the e2e deployment tests require GCP
+      # credentials (they run `make deploy`), so they belong in the credentialed
+      # Cloud Build tier, not this cloud-free job.
