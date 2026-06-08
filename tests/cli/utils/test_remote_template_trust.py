@@ -28,7 +28,7 @@ Tests are grouped: Unit / Integration / Negative / Boundary.
 """
 
 import subprocess
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import click
 import pytest
@@ -198,7 +198,7 @@ class TestFetchIntegration:
             patch.object(rt, "check_and_execute_with_version_lock", return_value=False),
             patch.object(rt.tempfile, "mkdtemp", return_value=str(tmp_path / "asp")),
         ):
-            template_dir, temp_path = fetch_remote_template(spec, "adk@demo")
+            template_dir, _ = fetch_remote_template(spec, "adk@demo")
         # Expected outcome: no prompt for trusted source; clone proceeded.
         mock_ask.assert_not_called()
         assert template_dir.name == "demo"
