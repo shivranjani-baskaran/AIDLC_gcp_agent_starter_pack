@@ -21,7 +21,7 @@
 | 3 | Supply chain | Agent Engine deploy uses `uv export --no-hashes` → no integrity pinning | Medium | Open |
 | 4 | Supply chain | Nested `uvx agent-starter-pack@<ver>` version sourced from template lock | Medium | Open |
 | 5 | Injection | Remote `repo_url`/`git_ref`/`path` flow into `git` args (argument-injection surface) | Medium | Mitigated by design |
-| 6 | Sensitive logging | Rich-markup injection via unescaped `repo_url` in provenance output | Low | Introduced by change |
+| 6 | Sensitive logging | Rich-markup injection via unescaped `repo_url` in provenance output | Low | **Fixed** (`rich.markup.escape`) |
 | 7 | Secrets handling | `--google-api-key` written to `.env`; relies on template `.gitignore` | Medium | Open |
 | 8 | Secrets handling | Cloud SQL password via Secret Manager `version = "latest"` (unpinned) | Low | Open |
 | 9 | AuthZ | Generated service has no app-level authn/authz; depends on platform IAM | Medium | By design |
