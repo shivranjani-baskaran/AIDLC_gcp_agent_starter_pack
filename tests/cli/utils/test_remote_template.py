@@ -165,8 +165,9 @@ class TestFetchRemoteTemplate:
             git_ref="main",
         )
 
+        # auto_approve bypasses the trust gate; this test targets clone-failure handling.
         with pytest.raises(RuntimeError, match="Git clone failed"):
-            fetch_remote_template(spec)
+            fetch_remote_template(spec, auto_approve=True)
 
         mock_rmtree.assert_called_once_with(
             pathlib.Path("/tmp/test_dir"), ignore_errors=True
@@ -194,11 +195,12 @@ class TestFetchRemoteTemplate:
             git_ref="main",
         )
 
+        # auto_approve bypasses the trust gate; this test targets path-not-found handling.
         with pytest.raises(
             RuntimeError,
             match="An unexpected error occurred after fetching remote template: Template path not found in the repository: nonexistent/path",
         ):
-            fetch_remote_template(spec)
+            fetch_remote_template(spec, auto_approve=True)
 
         mock_rmtree.assert_called_once()
 
@@ -285,8 +287,12 @@ class TestFetchRemoteTemplate:
         clone_cmd = clone_call[0][0]
         assert "--filter=tree:0" not in clone_cmd
         assert "--no-checkout" not in clone_cmd
-        # Should only have the clone call, no sparse checkout commands
-        assert len(mock_subprocess.call_args_list) == 1
+        # Only the clone call plus the provenance `git rev-parse` should run;
+        # no sparse-checkout commands for a full clone.
+        all_cmds = [c[0][0] for c in mock_subprocess.call_args_list]
+        assert not any("sparse-checkout" in cmd for cmd in all_cmds)
+        assert len(mock_subprocess.call_args_list) == 2
+        assert mock_subprocess.call_args_list[1][0][0][:2] == ["git", "rev-parse"]
 
 
 class TestLoadRemoteTemplateConfig:

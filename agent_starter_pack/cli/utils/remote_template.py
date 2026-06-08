@@ -311,9 +311,19 @@ def confirm_remote_template_trust(
         console.print("   [dim]--auto-approve set: proceeding without confirmation.[/]")
         return
 
-    if not Confirm.ask(
-        "\n   Do you trust this source and want to continue?", default=False
-    ):
+    # In a non-interactive session there is no way to obtain consent, so fail
+    # closed (treat EOF as a decline) rather than crashing with an EOFError.
+    try:
+        trusted = Confirm.ask(
+            "\n   Do you trust this source and want to continue?", default=False
+        )
+    except EOFError:
+        console.print(
+            "   [red]No interactive terminal for confirmation; refusing untrusted "
+            "template. Re-run with --auto-approve to bypass.[/]"
+        )
+        trusted = False
+    if not trusted:
         raise click.Abort()
 
 
