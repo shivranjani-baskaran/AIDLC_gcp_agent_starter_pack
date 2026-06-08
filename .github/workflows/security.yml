@@ -91,10 +91,15 @@ jobs:
             | sh -s -- -b /usr/local/bin
           trivy --version
 
+      # --offline-scan avoids external dependency-resolution calls (e.g. Maven
+      # Central), which can return 429 and crash the scan. continue-on-error keeps
+      # transient scanner/network failures from blocking the pipeline.
       - name: Trivy filesystem scan (SARIF)
+        continue-on-error: true
         run: |
           trivy fs . \
             --scanners vuln,misconfig,secret \
+            --offline-scan \
             --format sarif \
             --output trivy-results.sarif \
             --severity CRITICAL,HIGH \
@@ -115,9 +120,11 @@ jobs:
       # build. The repo has pre-existing findings to triage; flip --exit-code to 1
       # to enforce the gate once they are baselined.
       - name: Trivy report (CRITICAL/HIGH)
+        continue-on-error: true
         run: |
           trivy fs . \
             --scanners vuln,misconfig,secret \
+            --offline-scan \
             --severity CRITICAL,HIGH \
             --ignore-unfixed \
             --exit-code 0
