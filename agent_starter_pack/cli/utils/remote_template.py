@@ -308,9 +308,7 @@ def confirm_remote_template_trust(
         console.print(f"   Spec:   [dim]{escape(original_agent_spec)}[/]")
 
     if auto_approve:
-        console.print(
-            "   [dim]--auto-approve set: proceeding without confirmation.[/]"
-        )
+        console.print("   [dim]--auto-approve set: proceeding without confirmation.[/]")
         return
 
     if not Confirm.ask(

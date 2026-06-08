@@ -87,7 +87,9 @@ class TestConfirmGateUnit:
     def test_trusted_source_does_not_prompt(self) -> None:
         # Expected outcome: Confirm.ask never called for a trusted source.
         with patch.object(rt, "Confirm") as mock_confirm:
-            confirm_remote_template_trust(_spec("https://github.com/google/adk-samples"))
+            confirm_remote_template_trust(
+                _spec("https://github.com/google/adk-samples")
+            )
         mock_confirm.ask.assert_not_called()
 
     def test_untrusted_source_proceeds_on_yes(self) -> None:
@@ -100,14 +102,14 @@ class TestConfirmGateUnit:
     def test_provenance_details_are_displayed(self) -> None:
         # Why: the user can only make an informed decision if source/ref/path are
         # shown. Risk: a blind prompt trains users to click 'yes' with no context.
-        spec = _spec(
-            "https://github.com/someone/evil", ref="v1.2.3", path="agents/foo"
-        )
+        spec = _spec("https://github.com/someone/evil", ref="v1.2.3", path="agents/foo")
         with (
             patch.object(rt.Confirm, "ask", return_value=True),
             patch.object(rt.Console, "print") as mock_print,
         ):
-            confirm_remote_template_trust(spec, original_agent_spec="someone/evil@v1.2.3")
+            confirm_remote_template_trust(
+                spec, original_agent_spec="someone/evil@v1.2.3"
+            )
         printed = "\n".join(str(c.args[0]) for c in mock_print.call_args_list if c.args)
         # Expected outcome: all provenance fields surfaced to the user.
         assert "evil" in printed
@@ -237,12 +239,16 @@ class TestNegative:
     def test_lookalike_fork_is_not_trusted(self) -> None:
         # Why: typosquat/fork is a classic supply-chain trick.
         # Expected outcome: treated as untrusted -> prompt required.
-        assert is_trusted_template_source(
-            _spec("https://github.com/google-fork/adk-samples")
-        ) is False
-        assert is_trusted_template_source(
-            _spec("https://evil.com/google/adk-samples")
-        ) is False
+        assert (
+            is_trusted_template_source(
+                _spec("https://github.com/google-fork/adk-samples")
+            )
+            is False
+        )
+        assert (
+            is_trusted_template_source(_spec("https://evil.com/google/adk-samples"))
+            is False
+        )
 
     def test_provenance_failure_is_non_fatal(self, tmp_path) -> None:
         # Risk: a flaky `git rev-parse` must not break generation.
@@ -272,12 +278,12 @@ class TestBoundary:
     @pytest.mark.parametrize(
         "repo_url",
         [
-            "https://github.com/google/adk-samples/",          # trailing slash
-            "http://github.com/google/adk-samples",            # http scheme
-            "https://github.com/google/adk-samples-extra",     # superstring
-            "https://github.com/google/ADK-SAMPLES",           # casing
-            "github.com/google/adk-samples",                   # missing scheme
-            "",                                                 # empty
+            "https://github.com/google/adk-samples/",  # trailing slash
+            "http://github.com/google/adk-samples",  # http scheme
+            "https://github.com/google/adk-samples-extra",  # superstring
+            "https://github.com/google/ADK-SAMPLES",  # casing
+            "github.com/google/adk-samples",  # missing scheme
+            "",  # empty
         ],
     )
     def test_non_canonical_urls_are_untrusted(self, repo_url: str) -> None:
@@ -302,5 +308,7 @@ class TestBoundary:
         mock_confirm.ask.assert_not_called()  # Expected: bypassed, no prompt.
 
         with patch.object(rt.Confirm, "ask", return_value=False):
-            with pytest.raises(click.Abort):  # Expected: auto_approve=False -> gate active.
+            with pytest.raises(
+                click.Abort
+            ):  # Expected: auto_approve=False -> gate active.
                 confirm_remote_template_trust(spec, auto_approve=False)
