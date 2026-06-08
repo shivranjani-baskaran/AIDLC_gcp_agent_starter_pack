@@ -181,5 +181,6 @@ jobs:
       - name: Render-and-lint templated agents (no cloud required)
         run: uv run python tests/integration/test_template_linting.py
 
-      - name: Makefile usability checks
-        run: uv run pytest tests/integration/test_makefile_usability.py -q
+      # NOTE: test_makefile_usability.py and the e2e deployment tests require GCP
+      # credentials (they run `make deploy`), so they belong in the credentialed
+      # Cloud Build tier, not this cloud-free job.
