@@ -108,8 +108,10 @@ include = ["tests/**"]
 invalid-return-type = "ignore"
 
 [tool.codespell]
-ignore-words-list = "rouge"
-skip = "./locust_env/*,uv.lock,.venv,**/*.ipynb"
+# `afterall` ignores the JS testing API `afterAll`; vendored lockfiles and
+# node_modules are skipped (they contain minified/hashed tokens, not prose).
+ignore-words-list = "rouge,afterall"
+skip = "./locust_env/*,uv.lock,.venv,**/*.ipynb,**/package-lock.json,**/node_modules/*"
 
 [build-system]
 requires = ["hatchling"]
